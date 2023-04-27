@@ -1,4 +1,5 @@
 cd mmocr
 conda activate openmmlab
 python millborne/camLatest_new.py --modeldir=custom_model_lite10
+python millborne/camLatest_polylines.py --modeldir=custom_model_lite10
 python millborne/record_detection_multithreading.py --modeldir=custom_model_lite10
