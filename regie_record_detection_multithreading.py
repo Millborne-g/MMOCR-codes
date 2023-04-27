@@ -1,18 +1,3 @@
-######## Webcam Object Detection Using Tensorflow-trained Classifier #########
-#
-# Author: Evan Juras
-# Date: 10/2/19
-# Description: 
-# This program uses a TensorFlow Lite model to perform object detection on a
-# video. It draws boxes and scores around the objects of interest in each frame
-# from the video.
-#
-# This code is based off the TensorFlow Lite image classification example at:
-# https://github.com/tensorflow/tensorflow/blob/master/tensorflow/lite/examples/python/label_image.py
-#
-# I added my own method of drawing boxes and labels using OpenCV.
-
-# Import packages
 import os
 import argparse
 import cv2
@@ -25,10 +10,11 @@ import pytesseract
 from PIL import Image
 from threading import Thread
 import time
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+#pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+pytesseract.pytesseract.tesseract_cmd = r"C:\Users\emielyn\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
 
 from mmocr.apis import TextRecInferencer
-inferencer = TextRecInferencer(model='SATRN', weights=r'C:\Users\User\mmocr\best_IC15_recog_word_acc_epoch_77.pth')
+inferencer = TextRecInferencer(model='SATRN', weights=r'C:\Users\emielyn\mmocr\best_IC15_recog_word_acc_epoch_77.pth')
 
 
 
@@ -136,18 +122,11 @@ def ocr():
     
     while True:
         try:
-            directory = r'C:\Users\User\mmocr'
+            directory = r'C:\\tflite1\\mmocr\\result'
 
-            # filename = r"C:\Users\User\mmocr\iMAGE.jpg"
-            # filepath = os.path.join(directory, filename)
-           
-            # result = inferencer(filepath,print_result=True)
-            # compres = result['predictions'][0]['text']
-
-            # print('Prediction: ',compres)
-
-            img = cv2.imread(r"C:\Users\User\mmocr\iMAGE.jpg")
-            img_resized = cv2.resize(img, (width, height))
+            img = cv2.imread(r"C:\Users\emielyn\mmocr\iMAGE.jpg")
+            #img_resized = cv2.resize(img, (width, height))
+            img_resized = cv2.resize(img,None, fx=0.5 , fy =0.5)
 
             # Pass preprocessed image to OCR model
             result = inferencer(img_resized, print_result=True)
@@ -158,47 +137,7 @@ def ocr():
             # saveImageDelay = True
         
         except Exception as e:
-            print('err '+e)
-        # while True:
-        #     # img_ocr = cv2.imread("iMAGE.jpg")
-        #     # img_ocr = cv2.resize(img_ocr,None, fx=0.5 , fy =0.5)
-        #     # txt =pytesseract.image_to_string(img_ocr, config='-c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 8 --oem 3')
-        #     # print(txt)
-        #     try:
-        #         img_ocr = cv2.imread("iMAGE.jpg")
-        #         # img_ocr = cv2.resize(img_ocr,None, fx=0.5 , fy =0.5)
-        #         img = cv2.cvtColor(img_ocr, cv2.COLOR_BGR2GRAY)
-
-        #         # _, result = cv2.threshold(img, 100, 255, cv2.THRESH_BINARY)
-
-        #         adaptive_result = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 41, 25) #the 15 is where I input the noise
-
-        #         # cv2.imshow("result", result)
-        #         # cv2.waitKey(0)
-
-        #         # Save the result to an image file
-        #         # cv2.imwrite('result.jpg', adaptive_result) #Threshold
-        #         cv2.imwrite('result.jpg', img) #Black and white
-
-        #         img_file = "result.jpg"
-
-        #         img_ocr = Image.open(img_file)
-        #         result_ocr = ''
-        #         try:
-        #             text = pytesseract.image_to_string(img_ocr, config='-c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 8 --oem 3')
-        #             # clean tesseract text by removing any unwanted blank spaces
-        #             clean_text = re.sub('[\W_]+', '', text)
-        #             result_ocr += clean_text
-                    
-        #         except: 
-        #             text = None
-
-        #         # result_ocr = pytesseract.image_to_string(img_ocr)
-
-        #         print("result "+result_ocr)
-        #     except Exception as e: 
-        #         print("error ocr "+e)
-
+            print('')
 
 
 def detection():
@@ -256,14 +195,15 @@ def detection():
                 cv2.putText(frame, label, (xmin, label_ymin-7), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2) 
                 # cv2.circle(frame,(cx,cy),5,(10, 255, 0),-1)
                 imgRoi = frame[ymin:ymax, xmin:xmax]
-                # cv2.imwrite("iMAGE.jpg", imgRoi)
+                cv2.imwrite("iMAGE.jpg", imgRoi)
+                
                     # Save image every 3 seconds
-                elapsed_time = time.time() - last_save_time
-                if elapsed_time >= 2.7:
-                # if saveImageDelay == True:
-                    cv2.imwrite("iMAGE.jpg", imgRoi)
-                    last_save_time = time.time()
-                    saveImageDelay = False
+                # elapsed_time = time.time() - last_save_time
+                # if elapsed_time >= 2.7:
+                # # if saveImageDelay == True:
+                #     cv2.imwrite("iMAGE.jpg", imgRoi)
+                #     last_save_time = time.time()
+                #     saveImageDelay = False
                 
                 # ocr()
                 

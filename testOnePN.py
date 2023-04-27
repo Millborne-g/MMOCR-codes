@@ -2,13 +2,13 @@ import os
 from PIL import Image
 
 from mmocr.apis import TextRecInferencer
-inferencer = TextRecInferencer(model='SATRN', weights=r'C:\Users\User\mmocr\best_IC15_recog_word_acc_epoch_77.pth')
+inferencer = TextRecInferencer(model='SATRN', weights=r'C:\Users\emielyn\mmocr\best_IC15_recog_word_acc_epoch_77.pth')
 avg_val = []
 
 # Set directory path where the images are located
-directory = r'C:\Users\User\mmocr'
+directory = r'C:\Users\emielyn\mmocr'
 
-filename = r"C:\Users\User\mmocr\iMAGE.jpg"
+filename = r"C:\Users\emielyn\mmocr\val\093005.jpg"
 
 print()
 

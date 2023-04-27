@@ -7,11 +7,15 @@ import time
 from threading import Thread
 import importlib.util
 import pytesseract
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+pytesseract.pytesseract.tesseract_cmd = r"C:\Users\emielyn\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
 import pyrebase
 from datetime import date
 from datetime import datetime
 import imutils
+import Levenshtein
+
+from mmocr.apis import TextRecInferencer
+inferencer = TextRecInferencer(model='SATRN', weights=r'C:\Users\emielyn\mmocr\best_IC15_recog_word_acc_epoch_77.pth')
 
 # Initialize the Firebase app with your service account credentials
 
@@ -31,12 +35,12 @@ db = firebase.database()
 
 
 class VideoStream:
-    """Camera object that controls video streaming from the Picamera"""\
-    # def __init__(self,resolution=(640,480),framerate=30): 820
-    def __init__(self,resolution=(420,480),framerate=30):
-        # self.stream = cv2.VideoCapture(0)
+    """Camera object that controls video streaming from the Picamera"""
+    def __init__(self,resolution=(640,480),framerate=30): 
+    # def __init__(self,resolution=(420,480),framerate=30):820
+        self.stream = cv2.VideoCapture(0)
 
-        self.stream = cv2.VideoCapture("newCamVid1.mp4")
+        # self.stream = cv2.VideoCapture("newCamVid1.mp4")
 
         #self.stream = cv2.VideoCapture("rtsp://thesis:thesisisit@10.0.254.12/stream2")
 
@@ -152,7 +156,7 @@ videostream = VideoStream(resolution=(imW,imH),framerate=30).start()
 count = 0
 exit = 0
 detected = False
-image_output = "C:\Plate Numberdetected\iMAGE.jpg"
+image_output = "iMAGE.jpg"
 
 
 def checkExist():
@@ -175,36 +179,59 @@ def checkExist():
                 # Close the file
                 file.close()
             plateNum = first_line
-            try:
-                exist = db.child("Vehicle_with_criminal_offense").child(plateNum).child("plateNumber").get()
-                #print(exist.val())
-                if exist.val() != None:
-                    isApprehended = db.child("Vehicle_with_criminal_offense").child(plateNum).child("apprehended").get()
-                    #print("isApprehended "+isApprehended.val())
-                    if isApprehended.val() != 'yes':
-                        # Create Data
-                        nowD = datetime.now()
-                        dateToday = str(date.today())
-                        timeToday = nowD.strftime("%H:%M:%S")
-                        crimeScanned = db.child("Vehicle_with_criminal_offense").child(plateNum).child("criminalOffense").get()
-                        data = {"PlateNumber":plateNum, "Location": "Lapasan Zone 4", "Date": dateToday, "Time": timeToday, "Notification": "on", "Apprehended": "no", "CriminalOffense": crimeScanned.val()}
-                        
-                        print(len(prev_txt))
-                        if plateNum not in prev_txt:
-                            db.child("Scanned").child((dateToday+" "+timeToday)).set(data)
-                            crime = db.child("Vehicle_with_criminal_offense").child(plateNum).child("criminalOffense").get()
-                            dataPlateNumber = {"PlateNumber":plateNum, "Apprehended": "no","CriminalOffense": crime.val()}
-                            db.child("ScannedPlateNumber").child(plateNum).set(dataPlateNumber)
 
-                            #For Notification
-                            db.child("ScannedNotification").set(data)
-                            db.child("ScannedPlateNumberNotification").set(dataPlateNumber)
-                            prev_txt.append(plateNum)
-                else:
-                    print(" ")
-                    #print("Plate Number dont't exist")
+            # print('check '+plateNum)
+
+            try:
+                if len(plateNum)>0:
+                    # Get all plate numbers in "Vehicle_with_criminal_offense" node
+                    plate_nums = db.child("Vehicle_with_criminal_offense").shallow().get().val()
+                    
+                    # Find closest match to input
+                    global closest_match
+                    closest_match = None
+                    min_distance = float('inf')
+                    for num in plate_nums:
+                        distance = Levenshtein.distance(plateNum, num)
+                        if distance < min_distance:
+                            closest_match = num
+                            min_distance = distance
+                    
+                    confidence = round((1 - (min_distance / len(plateNum))) * 100, 2)
+                    if confidence >= 60 and closest_match not in prev_txt:
+                        exist = db.child("Vehicle_with_criminal_offense").child(closest_match).child("plateNumber").get()
+                        #print(exist.val())
+                        if exist.val() != None:
+                            isApprehended = db.child("Vehicle_with_criminal_offense").child(closest_match).child("apprehended").get()
+                            #print("isApprehended "+isApprehended.val())
+                            if isApprehended.val() != 'yes':
+                                    print('Notify '+plateNum)
+                                    # Create Data
+                                    nowD = datetime.now()
+                                    dateToday = str(date.today())
+                                    timeToday = nowD.strftime("%H:%M:%S")
+                                    crimeScanned = db.child("Vehicle_with_criminal_offense").child(closest_match).child("criminalOffense").get()
+
+                                    color = ''
+                                    if confidence >= 60 and confidence <= 75:
+                                        color='yellow'
+                                    elif confidence > 75 and confidence <= 100:
+                                        color='red'
+
+                                    data = {"PlateNumber":closest_match, "Location": "Lapasan Zone 4", "Date": dateToday, "Time": timeToday, "Notification": "on", "Apprehended": "no", "CriminalOffense": crimeScanned.val(), 'Color': color, 'DetectedPN': plateNum}
+                                    db.child("Scanned").child((dateToday+" "+timeToday)).set(data)
+                                    dataPlateNumber = {"PlateNumber":closest_match, "Apprehended": "no","CriminalOffense": crimeScanned.val()}
+                                    db.child("ScannedPlateNumber").child(closest_match).set(dataPlateNumber)
+
+                                    #For Notification
+                                    db.child("ScannedNotification").set(data)
+                                    db.child("ScannedPlateNumberNotification").set(dataPlateNumber)
+                                    prev_txt.append(closest_match)
+                        else:
+                            print(" ")
+                            #print("Plate Number dont't exist")
             except Exception as e:
-                print(" ")
+                print("err "+str(e))
                 #print("Plate Number dont't exist "+ str(e))
             #print()
             #print('checkDatabase')
@@ -266,33 +293,16 @@ def ocr():
                                 img_ocr = cv2.imread(image_output)
                                 img_ocr = cv2.resize(img_ocr,None, fx=0.5 , fy =0.5)
                                 if detected == True:
-                                    txt =pytesseract.image_to_string(img_ocr, config='-c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 8 --oem 3')
-                                    print(txt)  
-                                    data = {"PlateNumber":txt}
-                                    db.child("ScannedQuery").set(data)                                  
-                                    # if txt not in prev_txt:
-                                    #     try: 
-                                    #         data = {"PlateNumber":txt}
-                                    #         db.child("ScannedQuery").set(data)
-                                            
-                                    #         #print('plate number submitted to db')
-                                    #     except Exception as e:
-                                    #         print(" ")
-                                    #         #print("Plate Number dont't exist "+ str(e))
-                                    #     #print()
-                                    #     #print('submitPlateNumber')
-                                    #     #print('Latest data:', txt)
-                                    #     #print()
+                                    # txt =pytesseract.image_to_string(img_ocr, config='-c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 8 --oem 3')
+                                    # print(txt)  
+                                    # Pass preprocessed image to OCR model
+                                    result = inferencer(img_ocr, print_result=True)
+                                    text = result['predictions'][0]['text']
 
-                                        
-                                    #     #prev_txt.append(txt)
-                                        
-                                    # else:
-                                    #     print(prev_txt)
-                                    #    print("-",prev_txt)
-
-                                       
-                                    #print(prev_txt)
+                                    # Print OCR results
+                                    print('Prediction: ',text)
+                                    data = {"PlateNumber":text}
+                                    db.child("ScannedQuery").set(data)
                                 try:
                                     os.remove(image_output)
                                 except OSError as e:
@@ -316,8 +326,8 @@ def detection():
         t1 = cv2.getTickCount()
         frame1 = videostream.read()
 
-        # frame = frame1.copy()
-        frame = imutils.resize(frame1, width=820)
+        frame = frame1.copy()
+        # frame = imutils.resize(frame1, width=820)
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         frame_resized = cv2.resize(frame_rgb, (width, height))
         input_data = np.expand_dims(frame_resized, axis=0)
@@ -330,10 +340,12 @@ def detection():
 
         boxes = interpreter.get_tensor(output_details[boxes_idx]['index'])[0]
         classes = interpreter.get_tensor(output_details[classes_idx]['index'])[0] 
-        scores = interpreter.get_tensor(output_details[scores_idx]['index'])[0] 
+        scores = interpreter.get_tensor(output_details[scores_idx]['index'])[0]
 
-        area = [(1,357),(639,357),(639,450),(1,450)] #sa laptop cam
-        #area = [(2,243),(637,243),(637,360),(2,360)] #sa CCTV
+        # area = [(1,200),(817,200),(817,450),(1,450)] #Bahog ug video
+
+        area = [(1,257),(639,257),(639,480),(1,480)] #sa laptop cam
+        # area = [(2,243),(637,243),(637,360),(2,360)] #sa CCTV
 
         for i in range(len(scores)):
             if ((scores[i] > min_conf_threshold) and (scores[i] <= 1.0)):
@@ -354,7 +366,7 @@ def detection():
                     label = '%s: %d%%' % (object_name, int(scores[i]*100)) 
                     labelSize, baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2) 
                     label_ymin = max(ymin, labelSize[1] + 10) 
-                    # cv2.rectangle(frame, (xmin, label_ymin-labelSize[1]-10), (xmin+labelSize[0], label_ymin+baseLine-10), (255, 255, 255), cv2.FILLED)
+                    cv2.rectangle(frame, (xmin, label_ymin-labelSize[1]-10), (xmin+labelSize[0], label_ymin+baseLine-10), (255, 255, 255), cv2.FILLED)
                     cv2.putText(frame, label, (xmin, label_ymin-7), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2) 
                     # cv2.circle(frame,(cx,cy),5,(10, 255, 0),-1)
                     imgRoi = frame[ymin:ymax, xmin:xmax]
@@ -366,6 +378,8 @@ def detection():
             cv2.polylines(frame,[np.array(area, np.int32)], True, (15,220,10),6)
 
         cv2.putText(frame,'FPS: {0:.2f}'.format(frame_rate_calc),(30,50),cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,0),2,cv2.LINE_AA)
+        
+        # frame1 = imutils.resize(frame, width=650)
         cv2.imshow('Object detector', frame)
 
         
