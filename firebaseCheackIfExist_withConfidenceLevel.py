@@ -26,35 +26,37 @@ db = firebase.database()
 def checkExist(plateNum):
     
     try:
-        # Get all plate numbers in "Vehicle_with_criminal_offense" node
         plate_nums = db.child("Vehicle_with_criminal_offense").shallow().get().val()
-        
-        # Find closest match to input
-        closest_match = None
+
+        # Find closest matches to input with at least 50% confidence score
+        global closest_matches
+        closest_matches = []
         min_distance = float('inf')
         for num in plate_nums:
             distance = Levenshtein.distance(plateNum, num)
-            if distance < min_distance:
-                closest_match = num
-                min_distance = distance
+            confidence = round((1 - (distance / len(plateNum))) * 100, 2)
+            if confidence >= 50:
+                closest_matches.append((num, confidence))
+
+        # Sort matches by descending confidence
+        closest_matches = sorted(closest_matches, key=lambda x: x[1], reverse=True)
+        print(str(closest_matches[0][0]))
         
-        confidence = round((1 - (min_distance / len(plateNum))) * 100, 2)
-        
-        if confidence >= 50:
-            exist = db.child("Vehicle_with_criminal_offense").child(closest_match).child("plateNumber").get()
-            print(f"Closest match found: {closest_match}")
-            print(f"Closest match found in db: {plateNum}")
-            print(f"Confidence level: {confidence}%")
+        if True:
+            exist = db.child("Vehicle_with_criminal_offense").child(closest_matches[0][0]).child("plateNumber").get()
+            # # print(f"Closest match found: {closest_match}")
+            # print(f"Closest match found in db: {plateNum}")
+            # print(f"Confidence level: {confidence}%")
             if exist.val() != None:
                 print()
-                isApprehended = db.child("Vehicle_with_criminal_offense").child(closest_match).child("apprehended").get()
+                isApprehended = db.child("Vehicle_with_criminal_offense").child(closest_matches[0][0]).child("apprehended").get()
                 print("isApprehended "+isApprehended.val())
                 if isApprehended.val() != 'yes':
                     # Create Data
                     nowD = datetime.now()
                     dateToday = str(date.today())
                     timeToday = nowD.strftime("%H:%M:%S")
-                    crimeScanned = db.child("Vehicle_with_criminal_offense").child(closest_match).child("criminalOffense").get()
+                    crimeScanned = db.child("Vehicle_with_criminal_offense").child(closest_matches[0][0]).child("criminalOffense").get()
 
                     color = ''
                     if confidence >= 50 and confidence <= 70:
@@ -62,18 +64,18 @@ def checkExist(plateNum):
                     elif confidence > 70 and confidence <= 100:
                         color='red'
 
-                    data = {"PlateNumber":closest_match, "Location": "Lapasan Zone 4", "Date": dateToday, "Time": timeToday, "Notification": "on", "Apprehended": "no", "CriminalOffense": crimeScanned.val(), 'Color': color, 'DetectedPN': plateNum}
+                    data = {"PlateNumber":closest_matches[0][0], "Location": "Lapasan Zone 4", "Date": dateToday, "Time": timeToday, "Notification": "on", "Apprehended": "no", "CriminalOffense": crimeScanned.val(), 'Color': color, 'DetectedPN': plateNum, 'ClosestMatches':str(closest_matches)}
                     db.child("Scanned").child((dateToday+" "+timeToday)).set(data)
-                    dataPlateNumber = {"PlateNumber":closest_match, "Apprehended": "no","CriminalOffense": crimeScanned.val()}
-                    db.child("ScannedPlateNumber").child(closest_match).set(dataPlateNumber)
+                    dataPlateNumber = {"PlateNumber":closest_matches[0][0], "Apprehended": "no","CriminalOffense": crimeScanned.val()}
+                    db.child("ScannedPlateNumber").child(closest_matches[0][0]).set(dataPlateNumber)
 
                     #For Notification
                     db.child("ScannedNotification").set(data)
                     db.child("ScannedPlateNumberNotification").set(dataPlateNumber)
             else:
-                print("Plate Number don't exist")
+                print("Plate Number don't exist ssss")
         else:
-            print("Plate Number don't exist")
+            print("Plate Number don't exist dddd")
             # print("No match found for input")
     except Exception as e:
         print("Error: " + str(e))

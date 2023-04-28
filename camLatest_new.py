@@ -32,7 +32,7 @@ firebaseConfig = {
 
 firebase = pyrebase.initialize_app(firebaseConfig)
 db = firebase.database()
-
+storage = firebase.storage()
 
 class VideoStream:
     """Camera object that controls video streaming from the Picamera"""
@@ -157,7 +157,7 @@ count = 0
 exit = 0
 detected = False
 image_output = "iMAGE.jpg"
-
+copyPath = "check_copy.jpg"
 
 def checkExist():
     global exit
@@ -184,51 +184,61 @@ def checkExist():
 
             try:
                 if len(plateNum)>0:
-                    # Get all plate numbers in "Vehicle_with_criminal_offense" node
+                    # Find closest matches to input with at least 50% confidence score
                     plate_nums = db.child("Vehicle_with_criminal_offense").shallow().get().val()
-                    
-                    # Find closest match to input
-                    global closest_match
-                    closest_match = None
-                    min_distance = float('inf')
+
+                    global closest_matches
+                    closest_matches = []
+                    # min_distance = float('inf')
                     for num in plate_nums:
                         distance = Levenshtein.distance(plateNum, num)
-                        if distance < min_distance:
-                            closest_match = num
-                            min_distance = distance
-                    
-                    confidence = round((1 - (min_distance / len(plateNum))) * 100, 2)
-                    if confidence >= 60 and closest_match not in prev_txt:
-                        exist = db.child("Vehicle_with_criminal_offense").child(closest_match).child("plateNumber").get()
+                        confidence = round((1 - (distance / len(plateNum))) * 100, 2)
+                        if confidence >= 50:
+                            closest_matches.append((num, confidence))
+
+                    # Sort matches by descending confidence
+                    closest_matches = sorted(closest_matches, key=lambda x: x[1], reverse=True)
+                    if closest_matches[0][0] not in prev_txt:
+                        exist = db.child("Vehicle_with_criminal_offense").child(closest_matches[0][0]).child("plateNumber").get()
                         #print(exist.val())
                         if exist.val() != None:
-                            isApprehended = db.child("Vehicle_with_criminal_offense").child(closest_match).child("apprehended").get()
+                            isApprehended = db.child("Vehicle_with_criminal_offense").child(closest_matches[0][0]).child("apprehended").get()
                             #print("isApprehended "+isApprehended.val())
                             if isApprehended.val() != 'yes':
-                                    print('Notify '+plateNum)
+                                    
                                     # Create Data
                                     nowD = datetime.now()
                                     dateToday = str(date.today())
                                     timeToday = nowD.strftime("%H:%M:%S")
-                                    crimeScanned = db.child("Vehicle_with_criminal_offense").child(closest_match).child("criminalOffense").get()
+                                    crimeScanned = db.child("Vehicle_with_criminal_offense").child(closest_matches[0][0]).child("criminalOffense").get()
 
-                                    color = ''
-                                    if confidence >= 60 and confidence <= 75:
-                                        color='yellow'
-                                    elif confidence > 75 and confidence <= 100:
-                                        color='red'
+                                    detected_PN_filename = f"scanned_platenumbers\{plateNum}.jpg"
+                                    # storageFilename = dateToday+" "+timeToday+detected_PN_filename.split('\\')[-1]
 
-                                    data = {"PlateNumber":closest_match, "Location": "Lapasan Zone 4", "Date": dateToday, "Time": timeToday, "Notification": "on", "Apprehended": "no", "CriminalOffense": crimeScanned.val(), 'Color': color, 'DetectedPN': plateNum}
+                                    # Upload image to Firebase storage
+                                    storage.child(f"{dateToday} {timeToday} {plateNum}.jpg").put(detected_PN_filename)
+
+                                    # Get view link of uploaded file
+                                    view_link = storage.child(f"{dateToday} {timeToday} {plateNum}.jpg").get_url(None)
+
+                                    # color = ''
+                                    # if confidence >= 60 and confidence <= 75:
+                                    #     color='yellow'
+                                    # elif confidence > 75 and confidence <= 100:
+                                    #     color='red'
+
+                                    data = {"PlateNumber":closest_matches[0][0], "Location": "Lapasan Zone 4", "Date": dateToday, "Time": timeToday, "Notification": "on", "Apprehended": "no", "CriminalOffense": crimeScanned.val(), 'DetectedPN': plateNum, 'ClosestMatches':str(closest_matches), 'ImageLink':view_link}
                                     db.child("Scanned").child((dateToday+" "+timeToday)).set(data)
-                                    dataPlateNumber = {"PlateNumber":closest_match, "Apprehended": "no","CriminalOffense": crimeScanned.val()}
-                                    db.child("ScannedPlateNumber").child(closest_match).set(dataPlateNumber)
+                                    dataPlateNumber = {"PlateNumber":closest_matches[0][0], "Apprehended": "no","CriminalOffense": crimeScanned.val()}
+                                    db.child("ScannedPlateNumber").child(closest_matches[0][0]).set(dataPlateNumber)
 
                                     #For Notification
                                     db.child("ScannedNotification").set(data)
                                     db.child("ScannedPlateNumberNotification").set(dataPlateNumber)
-                                    prev_txt.append(closest_match)
+                                    prev_txt.append(closest_matches[0][0])
+                                    print('Notify '+plateNum)   
                         else:
-                            print(" ")
+                            print("check exist"+str(exist.val()))
                             #print("Plate Number dont't exist")
             except Exception as e:
                 print("err "+str(e))
@@ -276,8 +286,21 @@ def clear_list():
     while True:
         if exit == 0:
             time.sleep(30)
+            
+            folder_path = 'scanned_platenumbers'  # Replace with the path to your folder
+
+            # Loop through all the files in the folder and remove them
+            for filename in os.listdir(folder_path):
+                file_path = os.path.join(folder_path, filename)
+                try:
+                    if os.path.isfile(file_path) or os.path.islink(file_path):
+                        os.unlink(file_path)
+                except Exception as e:
+                    print(f'Error deleting {file_path}: {e}')
             prev_txt.clear()
-            print("--------------------------")
+            print()
+            print("-----------Clear List------------")
+            print()
         else:
             break
 
@@ -291,24 +314,33 @@ def ocr():
                         if os.path.exists(image_output):
                             try:
                                 img_ocr = cv2.imread(image_output)
-                                img_ocr = cv2.resize(img_ocr,None, fx=0.5 , fy =0.5)
+                                # img_ocr = cv2.resize(img_ocr,None, fx=0.5 , fy =0.5)
+                                
                                 if detected == True:
+                                    
                                     # txt =pytesseract.image_to_string(img_ocr, config='-c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 8 --oem 3')
                                     # print(txt)  
                                     # Pass preprocessed image to OCR model
                                     result = inferencer(img_ocr, print_result=True)
                                     text = result['predictions'][0]['text']
 
+                                    # Create a new filename for the original image
+                                    # new_original_filename = f"scanned_platenumbers\{dateToday}_{timeToday}_{text}.jpg"
+                                    new_original_filename = f"scanned_platenumbers\{text}.jpg"
+
+                                    # Rename the original image with the new filename
+                                    os.rename(copyPath, new_original_filename)
                                     # Print OCR results
                                     print('Prediction: ',text)
                                     data = {"PlateNumber":text}
                                     db.child("ScannedQuery").set(data)
+
                                 try:
                                     os.remove(image_output)
                                 except OSError as e:
-                                    print(f"Error: {image_output} path could not be delete. {e}")
+                                    print(f"Error: {copyPath} path could not be delete. {e}")
                             except Exception as e:
-                                print("")
+                                print("image check "+str(e))
                                 #print("An error occured:", str(e))
                         else:
                             
@@ -371,7 +403,7 @@ def detection():
                     # cv2.circle(frame,(cx,cy),5,(10, 255, 0),-1)
                     imgRoi = frame[ymin:ymax, xmin:xmax]
                     cv2.imwrite("iMAGE.jpg", imgRoi)
-             
+                    cv2.imwrite("check_copy.jpg", imgRoi)
                 else:
                     detected = False
         for i in area:
@@ -382,7 +414,6 @@ def detection():
         # frame1 = imutils.resize(frame, width=650)
         cv2.imshow('Object detector', frame)
 
-        
         t2 = cv2.getTickCount()
         time1 = (t2-t1)/freq
         frame_rate_calc= 1/time1
