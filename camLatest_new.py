@@ -196,7 +196,7 @@ def checkExist():
                     for num in plate_nums:
                         distance = Levenshtein.distance(plateNum, num)
                         confidence = round((1 - (distance / len(plateNum))) * 100, 2)
-                        if confidence >= 50:
+                        if confidence >= 60:
                             num_value = db.child("Vehicle_with_criminal_offense").child(num).child('criminalOffense').get().val()
                             closest_matches.append((num, num_value, confidence))
 
