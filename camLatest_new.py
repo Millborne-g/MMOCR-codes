@@ -158,12 +158,14 @@ exit = 0
 detected = False
 image_output = "iMAGE.jpg"
 copyPath = "check_copy.jpg"
+prevImgFname = []
 
 def checkExist():
     global exit
     global prev_txt
     while True:
         if exit == 0:
+            
             filename = "scanned_platenumbers.txt"
             first_line = ""
             # Open the file for reading and writing
@@ -184,6 +186,7 @@ def checkExist():
 
             try:
                 if len(plateNum)>0:
+                    
                     # Find closest matches to input with at least 50% confidence score
                     plate_nums = db.child("Vehicle_with_criminal_offense").shallow().get().val()
 
@@ -194,10 +197,11 @@ def checkExist():
                         distance = Levenshtein.distance(plateNum, num)
                         confidence = round((1 - (distance / len(plateNum))) * 100, 2)
                         if confidence >= 50:
-                            closest_matches.append((num, confidence))
+                            num_value = db.child("Vehicle_with_criminal_offense").child(num).child('criminalOffense').get().val()
+                            closest_matches.append((num, num_value, confidence))
 
                     # Sort matches by descending confidence
-                    closest_matches = sorted(closest_matches, key=lambda x: x[1], reverse=True)
+                    closest_matches = sorted(closest_matches, key=lambda x: x[2], reverse=True)
                     if closest_matches[0][0] not in prev_txt:
                         exist = db.child("Vehicle_with_criminal_offense").child(closest_matches[0][0]).child("plateNumber").get()
                         #print(exist.val())
@@ -205,7 +209,10 @@ def checkExist():
                             isApprehended = db.child("Vehicle_with_criminal_offense").child(closest_matches[0][0]).child("apprehended").get()
                             #print("isApprehended "+isApprehended.val())
                             if isApprehended.val() != 'yes':
+                                    # imgFilename = f"{plateNum}.jpg"
+                                    # imgFilename_path = "scanned_platenumbers"
                                     
+                                    # if os.path.exists(os.path.join(imgFilename_path, imgFilename)):
                                     # Create Data
                                     nowD = datetime.now()
                                     dateToday = str(date.today())
@@ -236,12 +243,18 @@ def checkExist():
                                     db.child("ScannedNotification").set(data)
                                     db.child("ScannedPlateNumberNotification").set(dataPlateNumber)
                                     prev_txt.append(closest_matches[0][0])
+                                    print()
+                                    print()
+                                    print()
                                     print('Notify '+plateNum)   
+                                    print()
+                                    print()
+                                    print()
                         else:
-                            print("check exist"+str(exist.val()))
+                            print("check exist "+str(exist.val()))
                             #print("Plate Number dont't exist")
             except Exception as e:
-                print("err "+str(e))
+                print("err CheckExist "+str(e))
                 #print("Plate Number dont't exist "+ str(e))
             #print()
             #print('checkDatabase')
@@ -285,7 +298,7 @@ def clear_list():
     global exit
     while True:
         if exit == 0:
-            time.sleep(30)
+            time.sleep(60)
             
             folder_path = 'scanned_platenumbers'  # Replace with the path to your folder
 
@@ -298,6 +311,7 @@ def clear_list():
                 except Exception as e:
                     print(f'Error deleting {file_path}: {e}')
             prev_txt.clear()
+            prevImgFname.clear()
             print()
             print("-----------Clear List------------")
             print()
@@ -309,6 +323,12 @@ def ocr():
             global detected
             global exit
             global prev_txt
+            global prevImgFname
+            filename = "scanned_platenumbers.txt"
+            prevPN = ''
+            # Create the file if it doesn't exist
+            if not os.path.isfile(filename):
+                open(filename, "w").close()
             while True: 
                 if exit == 0:    
                         if os.path.exists(image_output):
@@ -326,14 +346,33 @@ def ocr():
 
                                     # Create a new filename for the original image
                                     # new_original_filename = f"scanned_platenumbers\{dateToday}_{timeToday}_{text}.jpg"
-                                    new_original_filename = f"scanned_platenumbers\{text}.jpg"
+                                    
+                                    
+                                    
+                                    if text != prevPN:
+                                        # Open the file in append mode
+                                        with open(filename, "a") as file:
+                                            # Get the text to append from the user
+                                            plateNum = text
+                                            # Append the text to the end of the file
+                                            file.write(plateNum+ "\n")
+                                            # Close the file
+                                            file.close()
+                                        #print('checkdatabase')
+                                        prevPN = text
+                                    # data = {"PlateNumber":text}
+                                    # db.child("ScannedQuery").set(data)
+                                    
+                                    
+                                    if text not in prevImgFname:
+                                    
+                                        new_original_filename = f"scanned_platenumbers\{text}.jpg"
 
-                                    # Rename the original image with the new filename
-                                    os.rename(copyPath, new_original_filename)
+                                        # Rename the original image with the new filename
+                                        os.rename(copyPath, new_original_filename)
                                     # Print OCR results
                                     print('Prediction: ',text)
-                                    data = {"PlateNumber":text}
-                                    db.child("ScannedQuery").set(data)
+                                    prevImgFname.append(text)
 
                                 try:
                                     os.remove(image_output)
@@ -425,23 +464,42 @@ def detection():
     videostream.stop()
     cv2.destroyAllWindows()
 
+def first_clear_list():
+    folder_path = 'scanned_platenumbers'  # Replace with the path to your folder
+     # Loop through all the files in the folder and remove them
+    for filename in os.listdir(folder_path):
+        file_path = os.path.join(folder_path, filename)
+        try:
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.unlink(file_path)
+        except Exception as e:
+            print(f'Error deleting {file_path}: {e}')
+    prev_txt.clear()
+    prevImgFname.clear()
+    print()
+    print("-----------First Clear List------------")
+    print()
+
+
+first_clear_list()
+
 task1 = Thread(target=detection)
 task2 = Thread(target=ocr)
-task3 = Thread(target=saveForQuery)
+# task3 = Thread(target=saveForQuery)
 task4 = Thread(target=checkExist)
 task5 = Thread(target=clear_list)
 
 while True:
     task1.start()
     task2.start()
-    task3.start()
+    # task3.start()
     task4.start()
     task5.start()
 
 
     task1.join()
     task2.join()
-    task3.join()
+    # task3.join()
     task4.join()
     task5.join()
     if exit ==1:
