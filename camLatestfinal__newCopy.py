@@ -7,17 +7,16 @@ import time
 from threading import Thread
 import importlib.util
 import pytesseract
-pytesseract.pytesseract.tesseract_cmd = r"C:\Users\emielyn\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
 import pyrebase
 from datetime import date
 from datetime import datetime
-import imutils
 import Levenshtein
 
-from mmocr.apis import TextRecInferencer
-inferencer = TextRecInferencer(model='SATRN', weights=r'C:\Users\emielyn\mmocr\best_IC15_recog_word_acc_epoch_77.pth')
-
 # Initialize the Firebase app with your service account credentials
+from mmocr.apis import TextRecInferencer
+inferencer = TextRecInferencer(model='SATRN', weights=r'D:\testCudaPytorch2\best_IC15_recog_word_acc_epoch_77.pth')
+
+import imutils
 
 firebaseConfig = {
   "apiKey": "AIzaSyB_4cNoh3klH4mKPSd7dhJzr5QUGoLihy8",
@@ -36,14 +35,11 @@ storage = firebase.storage()
 
 class VideoStream:
     """Camera object that controls video streaming from the Picamera"""
-    def __init__(self,resolution=(640,480),framerate=30): 
-    # def __init__(self,resolution=(420,480),framerate=30):820
-        self.stream = cv2.VideoCapture(0)
-
-        # self.stream = cv2.VideoCapture("newCamVid1.mp4")
-
+    def __init__(self,resolution=(1920,1080),framerate=30):
+        # self.stream = cv2.VideoCapture("rtsp://camuser1:caiustpuser1@192.168.254.115:554/cam/realmonitor?channel=1&subtype=0")
         #self.stream = cv2.VideoCapture("rtsp://thesis:thesisisit@10.0.254.12/stream2")
-
+        self.stream = cv2.VideoCapture(0)
+        
         ret = self.stream.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
         ret = self.stream.set(3,resolution[0])
         ret = self.stream.set(4,resolution[1])
@@ -80,7 +76,7 @@ parser.add_argument('--labels', help='Name of the labelmap file, if different th
 parser.add_argument('--threshold', help='Minimum confidence threshold for displaying detected objects',
                     default=0.5)
 parser.add_argument('--resolution', help='Desired webcam resolution in WxH. If the webcam does not support the resolution entered, errors may occur.',
-                    default='640x480')
+                    default='1920x1080')
 parser.add_argument('--edgetpu', help='Use Coral Edge TPU Accelerator to speed up detection',
                     action='store_true')
 
@@ -155,10 +151,165 @@ freq = cv2.getTickFrequency()
 videostream = VideoStream(resolution=(imW,imH),framerate=30).start()
 count = 0
 exit = 0
-detected = False
-image_output = "iMAGE.jpg"
+
+directory = r'iMAGE.jpg'
 copyPath = "check_copy.jpg"
 prevImgFname = []
+
+def detection():
+    global frame_rate_calc
+    global exit
+    while True:
+        t1 = cv2.getTickCount()
+        frame1 = videostream.read()
+
+        frame = frame1.copy()
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame_resized = cv2.resize(frame_rgb, (width, height))
+        input_data = np.expand_dims(frame_resized, axis=0)
+
+        if floating_model:
+            input_data = (np.float32(input_data) - input_mean) / input_std
+
+        interpreter.set_tensor(input_details[0]['index'],input_data)
+        interpreter.invoke()
+
+        boxes = interpreter.get_tensor(output_details[boxes_idx]['index'])[0]
+        classes = interpreter.get_tensor(output_details[classes_idx]['index'])[0] 
+        scores = interpreter.get_tensor(output_details[scores_idx]['index'])[0] 
+
+        #area = [(2,219),(636,219),(637,475),(2,475)] #sa laptop cam
+        #area = [(x1,y1),(x2,y1)],(x2,y2),(x1,y2)]
+        area = [(100,500),(1600,500),(1600,1080),(100,1080)] #sa CCTV
+
+        for i in range(len(scores)):
+            if ((scores[i] > min_conf_threshold) and (scores[i] <= 1.0)):
+
+                ymin = int(max(1,(boxes[i][0] * imH)))
+                xmin = int(max(1,(boxes[i][1] * imW)))
+                ymax = int(min(imH,(boxes[i][2] * imH)))
+                xmax = int(min(imW,(boxes[i][3] * imW)))
+                
+                cx = int((xmin + xmax)/2)
+                cy = int((ymin + ymax)/2)
+                result = cv2.pointPolygonTest(np.array(area, np.int32), (int(cx), int(cy)), False)
+                if  result >= 0:
+                    cv2.rectangle(frame, (xmin,ymin), (xmax,ymax), (10, 255, 0), 2)
+
+                    object_name = labels[int(classes[i])] 
+                    label = '%s: %d%%' % (object_name, int(scores[i]*100)) 
+                    labelSize, baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2) 
+                    label_ymin = max(ymin, labelSize[1] + 10) 
+                    cv2.rectangle(frame, (xmin, label_ymin-labelSize[1]-10), (xmin+labelSize[0], label_ymin+baseLine-10), (255, 255, 255), cv2.FILLED)
+                    cv2.putText(frame, label, (xmin, label_ymin-7), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2) 
+                    #cv2.circle(frame,(cx,cy),5,(10, 255, 0),-1)
+                    imgRoi = frame[ymin:ymax, xmin:xmax]
+                    cv2.imwrite("iMAGE.jpg", imgRoi)
+                    cv2.imwrite("check_copy.jpg", imgRoi)
+
+                    
+
+        for i in area:
+            cv2.polylines(frame,[np.array(area, np.int32)], True, (15,220,10),6)
+
+        cv2.putText(frame,'FPS: {0:.2f}'.format(frame_rate_calc),(30,50),cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,0),2,cv2.LINE_AA)
+        frame2 = imutils.resize(frame, width=950)
+        cv2.imshow('Object detector', frame2)
+
+        
+        t2 = cv2.getTickCount()
+        time1 = (t2-t1)/freq
+        frame_rate_calc= 1/time1
+        
+
+        if cv2.waitKey(1) == ord('q'):
+            exit =1
+            break
+    videostream.stop()
+    cv2.destroyAllWindows()
+
+def ocr():
+    global saveImageDelay
+    global directory
+    global exit
+    global prev_txt
+    global prevImgFname
+    filename = "scanned_platenumbers.txt"
+    prevPN = ''
+    # Create the file if it doesn't exist
+    if not os.path.isfile(filename):
+        open(filename, "w").close()
+    while True:
+        if exit == 0:
+            if os.path.exists(directory):
+                try:
+                    img = cv2.imread(directory)
+                    img_resized = cv2.resize(img,None, fx=0.5 , fy =0.5)
+
+                    start_time = time.time()
+                    
+                    result = inferencer(img_resized, print_result=True)
+                    text = result['predictions'][0]['text']
+
+                    end_time = time.time()
+                    elapsed_time = end_time - start_time
+
+                    if text != prevPN:
+                    # Open the file in append mode
+                        with open(filename, "a") as file:
+                            # Get the text to append from the user
+                            plateNum = text
+                            # Append the text to the end of the file
+                            file.write(plateNum+ "\n")
+                            # Close the file
+                            file.close()
+                        prevPN = text
+                    print('Prediction: '+text+' TimeElapse: '+str(elapsed_time))
+                    
+                    os.remove(directory)
+                    
+                    if text not in prevImgFname:
+                                    
+                        new_original_filename = f"scanned_platenumbers\{text}.jpg"
+
+                        # Rename the original image with the new filename
+                        os.rename(copyPath, new_original_filename)
+                        prevImgFname.append(text)
+                    # Print OCR results
+                    
+                    
+                except Exception as e:
+                    print('error '+str(e))
+        else:
+            break
+
+# def saveForQuery():
+#     global exit
+#     filename = "scanned_platenumbers.txt"
+#     prevPN = ''
+#     # Create the file if it doesn't exist
+#     if not os.path.isfile(filename):
+#         open(filename, "w").close()
+
+#     while True:
+#         if exit == 0:
+
+#             #Read the latest scanned on the database
+#             plateNum = db.child("ScannedQuery").child("PlateNumber").get()
+#             if plateNum.val() != prevPN:
+#                 # Open the file in append mode
+#                 with open(filename, "a") as file:
+#                     # Get the text to append from the user
+#                     plateNum = plateNum.val()
+#                     # Append the text to the end of the file
+#                     file.write(plateNum+ "\n")
+#                     # Close the file
+#                     file.close()
+#                 #print('checkdatabase')
+#                 prevPN = plateNum
+#                 #time.sleep(1)
+#         else:
+#             break
 
 def checkExist():
     global exit
@@ -264,34 +415,6 @@ def checkExist():
         else:
             break
 
-# def saveForQuery():
-#     global exit
-#     filename = "scanned_platenumbers.txt"
-#     prevPN = ''
-#     # Create the file if it doesn't exist
-#     if not os.path.isfile(filename):
-#         open(filename, "w").close()
-
-#     while True:
-#         if exit == 0:
-
-#             #Read the latest scanned on the database
-#             plateNum = db.child("ScannedQuery").child("PlateNumber").get()
-#             if plateNum.val() != prevPN:
-#                 # Open the file in append mode
-#                 with open(filename, "a") as file:
-#                     # Get the text to append from the user
-#                     plateNum = plateNum.val()
-#                     # Append the text to the end of the file
-#                     file.write(plateNum+ "\n")
-#                     # Close the file
-#                     file.close()
-#                 #print('checkdatabase')
-#                 prevPN = plateNum
-#                 #time.sleep(1)
-#         else:
-#             break
-
 prev_txt = []
 
 def clear_list():
@@ -319,189 +442,56 @@ def clear_list():
             break
 
 
-def ocr():
-            global detected
-            global exit
-            global prev_txt
-            global prevImgFname
-            filename = "scanned_platenumbers.txt"
-            prevPN = ''
-            # Create the file if it doesn't exist
-            if not os.path.isfile(filename):
-                open(filename, "w").close()
-            while True: 
-                if exit == 0:    
-                        if os.path.exists(image_output):
-                            try:
-                                img_ocr = cv2.imread(image_output)
-                                # img_ocr = cv2.resize(img_ocr,None, fx=0.5 , fy =0.5)
-                                
-                                if detected == True:
-                                    
-                                    # txt =pytesseract.image_to_string(img_ocr, config='-c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 8 --oem 3')
-                                    # print(txt)  
-                                    # Pass preprocessed image to OCR model
-                                    result = inferencer(img_ocr, print_result=True)
-                                    text = result['predictions'][0]['text']
-
-                                    # Create a new filename for the original image
-                                    # new_original_filename = f"scanned_platenumbers\{dateToday}_{timeToday}_{text}.jpg"
-                                    
-                                    
-                                    
-                                    if text != prevPN:
-                                        # Open the file in append mode
-                                        with open(filename, "a") as file:
-                                            # Get the text to append from the user
-                                            plateNum = text
-                                            # Append the text to the end of the file
-                                            file.write(plateNum+ "\n")
-                                            # Close the file
-                                            file.close()
-                                        #print('checkdatabase')
-                                        prevPN = text
-                                    # data = {"PlateNumber":text}
-                                    # db.child("ScannedQuery").set(data)
-                                    
-                                    
-                                    if text not in prevImgFname:
-                                    
-                                        new_original_filename = f"scanned_platenumbers\{text}.jpg"
-
-                                        # Rename the original image with the new filename
-                                        os.rename(copyPath, new_original_filename)
-                                    # Print OCR results
-                                    print('Prediction: ',text)
-                                    prevImgFname.append(text)
-
-                                try:
-                                    os.remove(image_output)
-                                except OSError as e:
-                                    print(f"Error: {copyPath} path could not be delete. {e}")
-                            except Exception as e:
-                                print("image check "+str(e))
-                                #print("An error occured:", str(e))
-                        else:
-                            
-                    
-                            continue
-                            
-                else:
-                    break
-
-def detection():
-    global frame_rate_calc
-    global detected
-    global exit
-    while True:
-        t1 = cv2.getTickCount()
-        frame1 = videostream.read()
-
-        frame = frame1.copy()
-        # frame = imutils.resize(frame1, width=820)
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frame_resized = cv2.resize(frame_rgb, (width, height))
-        input_data = np.expand_dims(frame_resized, axis=0)
-
-        if floating_model:
-            input_data = (np.float32(input_data) - input_mean) / input_std
-
-        interpreter.set_tensor(input_details[0]['index'],input_data)
-        interpreter.invoke()
-
-        boxes = interpreter.get_tensor(output_details[boxes_idx]['index'])[0]
-        classes = interpreter.get_tensor(output_details[classes_idx]['index'])[0] 
-        scores = interpreter.get_tensor(output_details[scores_idx]['index'])[0]
-
-        # area = [(1,200),(817,200),(817,450),(1,450)] #Bahog ug video
-
-        area = [(1,257),(639,257),(639,480),(1,480)] #sa laptop cam
-        # area = [(2,243),(637,243),(637,360),(2,360)] #sa CCTV
-
-        for i in range(len(scores)):
-            if ((scores[i] > min_conf_threshold) and (scores[i] <= 1.0)):
-
-                ymin = int(max(1,(boxes[i][0] * imH)))
-                xmin = int(max(1,(boxes[i][1] * imW)))
-                ymax = int(min(imH,(boxes[i][2] * imH)))
-                xmax = int(min(imW,(boxes[i][3] * imW)))
-                
-                cx = int((xmin + xmax)/2)
-                cy = int((ymin + ymax)/2)
-                result = cv2.pointPolygonTest(np.array(area, np.int32), (int(cx), int(cy)), False)
-                if  result >= 0:
-                    detected = True
-                    # cv2.rectangle(frame, (xmin,ymin), (xmax,ymax), (10, 255, 0), 2)
-
-                    object_name = labels[int(classes[i])] 
-                    label = '%s: %d%%' % (object_name, int(scores[i]*100)) 
-                    labelSize, baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2) 
-                    label_ymin = max(ymin, labelSize[1] + 10) 
-                    cv2.rectangle(frame, (xmin, label_ymin-labelSize[1]-10), (xmin+labelSize[0], label_ymin+baseLine-10), (255, 255, 255), cv2.FILLED)
-                    cv2.putText(frame, label, (xmin, label_ymin-7), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2) 
-                    # cv2.circle(frame,(cx,cy),5,(10, 255, 0),-1)
-                    imgRoi = frame[ymin:ymax, xmin:xmax]
-                    cv2.imwrite("iMAGE.jpg", imgRoi)
-                    cv2.imwrite("check_copy.jpg", imgRoi)
-                else:
-                    detected = False
-        for i in area:
-            cv2.polylines(frame,[np.array(area, np.int32)], True, (15,220,10),6)
-
-        cv2.putText(frame,'FPS: {0:.2f}'.format(frame_rate_calc),(30,50),cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,0),2,cv2.LINE_AA)
-        
-        # frame1 = imutils.resize(frame, width=650)
-        cv2.imshow('Object detector', frame)
-
-        t2 = cv2.getTickCount()
-        time1 = (t2-t1)/freq
-        frame_rate_calc= 1/time1
-        
-
-        if cv2.waitKey(1) == ord('q'):
-            exit =1
-            break
-    videostream.stop()
-    cv2.destroyAllWindows()
-
 def first_clear_list():
-    folder_path = 'scanned_platenumbers'  # Replace with the path to your folder
-     # Loop through all the files in the folder and remove them
-    for filename in os.listdir(folder_path):
-        file_path = os.path.join(folder_path, filename)
-        try:
-            if os.path.isfile(file_path) or os.path.islink(file_path):
-                os.unlink(file_path)
-        except Exception as e:
-            print(f'Error deleting {file_path}: {e}')
-    prev_txt.clear()
-    prevImgFname.clear()
-    print()
-    print("-----------First Clear List------------")
-    print()
+    try:
+        folder_path = 'scanned_platenumbers'  # Replace with the path to your folder
+        # Loop through all the files in the folder and remove them
+        for filename in os.listdir(folder_path):
+            file_path = os.path.join(folder_path, filename)
+            try:
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)
+            except Exception as e:
+                print(f'Error deleting {file_path}: {e}')
+        prev_txt.clear()
+        prevImgFname.clear()
+        print()
+        print("-----------First Clear List------------")
+        print()
+    except Exception as e:
+                    print('error '+str(e))
 
 
 first_clear_list()
 
+
+
 task1 = Thread(target=detection)
 task2 = Thread(target=ocr)
-# task3 = Thread(target=saveForQuery)
-task4 = Thread(target=checkExist)
-task5 = Thread(target=clear_list)
+task3 = Thread(target=checkExist)
+task4 = Thread(target=clear_list)
+
+#task3 = Thread(target=saveForQuery)
+#task4 = Thread(target=checkExist)
+#task5 = Thread(target=clear_list)
 
 while True:
     task1.start()
     task2.start()
-    # task3.start()
+    task3.start()
     task4.start()
-    task5.start()
+#    task5.start()
 
 
     task1.join()
     task2.join()
-    # task3.join()
+    task3.join()
     task4.join()
-    task5.join()
+#    task5.join()
     if exit ==1:
         print("Done executing")
         break
+
+
+    
+
