@@ -349,14 +349,57 @@ def checkExist():
                     closest_matches = []
                     # min_distance = float('inf')
                     for num in plate_nums:
-                        distance = Levenshtein.distance(plateNum, num)
-                        confidence = round((1 - (distance / len(plateNum))) * 100, 2)
-                        if confidence >= 60:
-                            num_value = db.child("Vehicle_with_criminal_offense").child(num).child('criminalOffense').get().val()
-                            closest_matches.append((num, num_value, confidence))
+                        # distance = Levenshtein.distance(plateNum, num)
+                        # confidence = round((1 - (distance / len(plateNum))) * 100, 2)
+                        # if confidence >= 60:
+                        #     num_value = db.child("Vehicle_with_criminal_offense").child(num).child('criminalOffense').get().val()
+                        #     closest_matches.append((num, num_value, confidence))
+                        # Calculate Levenshtein distance between ground truth and OCR output
 
-                    # Sort matches by descending confidence
-                    closest_matches = sorted(closest_matches, key=lambda x: x[2], reverse=True)
+                        # using dynamic programming
+                        dp = [[0] * (len(num) + 1) for _ in range(len(plateNum) + 1)]
+                        for i in range(len(plateNum) + 1):
+                            for j in range(len(num) + 1):
+                                if i == 0:
+                                    dp[i][j] = j
+                                elif j == 0:
+                                    dp[i][j] = i
+                                elif plateNum[i - 1] == num[j - 1]:
+                                    dp[i][j] = dp[i - 1][j - 1]
+                                else:
+                                    dp[i][j] = 1 + min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
+                            
+                        # Calculate number of transforms required
+                        T = dp[len(plateNum)][len(num)]
+                                
+                        # Calculate number of correct characters
+                        C = len(num) - T
+                                
+                        print()
+                        # Calculate CER
+                        CER = T / (T + C) * 100
+                        confidence = 100 - CER 
+                        if confidence >= 60 and confidence <=75:
+                            num_value = db.child("Vehicle_with_criminal_offense").child(num).child('criminalOffense').get().val()
+                            closest_matches.append((num, num_value, round(confidence,2)))
+                        elif confidence > 75 and confidence <= 100:
+                            num_value = db.child("Vehicle_with_criminal_offense").child(num).child('criminalOffense').get().val()
+                            closest_matches.append((num, num_value, round(confidence,2)))
+                        
+                        # Sort matches by descending confidence
+                        closest_matches = sorted(closest_matches, key=lambda x: x[2], reverse=True)
+                        
+                    # closest_matches = []
+                    # # min_distance = float('inf')
+                    # for num in plate_nums:
+                    #     distance = Levenshtein.distance(plateNum, num)
+                    #     confidence = round((1 - (distance / len(plateNum))) * 100, 2)
+                    #     if confidence >= 60:
+                    #         num_value = db.child("Vehicle_with_criminal_offense").child(num).child('criminalOffense').get().val()
+                    #         closest_matches.append((num, num_value, confidence))
+
+                    # # Sort matches by descending confidence
+                    # closest_matches = sorted(closest_matches, key=lambda x: x[2], reverse=True)
                     if closest_matches[0][0] not in prev_txt:
                         exist = db.child("Vehicle_with_criminal_offense").child(closest_matches[0][0]).child("plateNumber").get()
                         #print(exist.val())

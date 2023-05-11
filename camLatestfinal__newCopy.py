@@ -36,9 +36,9 @@ storage = firebase.storage()
 class VideoStream:
     """Camera object that controls video streaming from the Picamera"""
     def __init__(self,resolution=(1920,1080),framerate=30):
-        # self.stream = cv2.VideoCapture("rtsp://camuser1:caiustpuser1@192.168.254.115:554/cam/realmonitor?channel=1&subtype=0")
+        self.stream = cv2.VideoCapture("rtsp://camuser1:caiustpuser1@192.168.254.115:554/cam/realmonitor?channel=1&subtype=0")
         #self.stream = cv2.VideoCapture("rtsp://thesis:thesisisit@10.0.254.12/stream2")
-        self.stream = cv2.VideoCapture(0)
+        # self.stream = cv2.VideoCapture(0)
         
         ret = self.stream.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
         ret = self.stream.set(3,resolution[0])
@@ -345,14 +345,56 @@ def checkExist():
                     closest_matches = []
                     # min_distance = float('inf')
                     for num in plate_nums:
-                        distance = Levenshtein.distance(plateNum, num)
-                        confidence = round((1 - (distance / len(plateNum))) * 100, 2)
-                        if confidence >= 60:
-                            num_value = db.child("Vehicle_with_criminal_offense").child(num).child('criminalOffense').get().val()
-                            closest_matches.append((num, num_value, confidence))
+                        # distance = Levenshtein.distance(plateNum, num)
+                        # confidence = round((1 - (distance / len(plateNum))) * 100, 2)
+                        # if confidence >= 60:
+                        #     num_value = db.child("Vehicle_with_criminal_offense").child(num).child('criminalOffense').get().val()
+                        #     closest_matches.append((num, num_value, confidence))
+                        # Calculate Levenshtein distance between ground truth and OCR output
 
-                    # Sort matches by descending confidence
-                    closest_matches = sorted(closest_matches, key=lambda x: x[2], reverse=True)
+                        # using dynamic programming
+                        dp = [[0] * (len(num) + 1) for _ in range(len(plateNum) + 1)]
+                        for i in range(len(plateNum) + 1):
+                            for j in range(len(num) + 1):
+                                if i == 0:
+                                    dp[i][j] = j
+                                elif j == 0:
+                                    dp[i][j] = i
+                                elif plateNum[i - 1] == num[j - 1]:
+                                    dp[i][j] = dp[i - 1][j - 1]
+                                else:
+                                    dp[i][j] = 1 + min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
+                            
+                        # Calculate number of transforms required
+                        T = dp[len(plateNum)][len(num)]
+                                
+                        # Calculate number of correct characters
+                        C = len(num) - T
+                                
+                        print()
+                        # Calculate CER
+                        CER = T / (T + C) * 100
+                        confidence = 100 - CER 
+                        if confidence >= 60 and confidence <=75:
+                            num_value = db.child("Vehicle_with_criminal_offense").child(num).child('criminalOffense').get().val()
+                            closest_matches.append((num, num_value, round(confidence,2)))
+                        elif confidence > 75 and confidence <= 100:
+                            num_value = db.child("Vehicle_with_criminal_offense").child(num).child('criminalOffense').get().val()
+                            closest_matches.append((num, num_value, round(confidence,2)))
+                        
+                        # Sort matches by descending confidence
+                        closest_matches = sorted(closest_matches, key=lambda x: x[2], reverse=True)
+                    # closest_matches = []
+                    # # min_distance = float('inf')
+                    # for num in plate_nums:
+                    #     distance = Levenshtein.distance(plateNum, num)
+                    #     confidence = round((1 - (distance / len(plateNum))) * 100, 2)
+                    #     if confidence >= 60:
+                    #         num_value = db.child("Vehicle_with_criminal_offense").child(num).child('criminalOffense').get().val()
+                    #         closest_matches.append((num, num_value, confidence))
+
+                    # # Sort matches by descending confidence
+                    # closest_matches = sorted(closest_matches, key=lambda x: x[2], reverse=True)
                     if closest_matches[0][0] not in prev_txt:
                         exist = db.child("Vehicle_with_criminal_offense").child(closest_matches[0][0]).child("plateNumber").get()
                         #print(exist.val())
@@ -385,7 +427,7 @@ def checkExist():
                                     # elif confidence > 75 and confidence <= 100:
                                     #     color='red'
 
-                                    data = {"PlateNumber":closest_matches[0][0], "Location": "Lapasan Zone 4", "Date": dateToday, "Time": timeToday, "Notification": "on", "Apprehended": "no", "CriminalOffense": crimeScanned.val(), 'DetectedPN': plateNum, 'ClosestMatches':str(closest_matches), 'ImageLink':view_link}
+                                    data = {"PlateNumber":closest_matches[0][0], "Location": "Corales Barangay 29", "Date": dateToday, "Time": timeToday, "Notification": "on", "Apprehended": "no", "CriminalOffense": crimeScanned.val(), 'DetectedPN': plateNum, 'ClosestMatches':str(closest_matches), 'ImageLink':view_link}
                                     db.child("Scanned").child((dateToday+" "+timeToday)).set(data)
                                     dataPlateNumber = {"PlateNumber":closest_matches[0][0], "Apprehended": "no","CriminalOffense": crimeScanned.val()}
                                     db.child("ScannedPlateNumber").child(closest_matches[0][0]).set(dataPlateNumber)

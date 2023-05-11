@@ -35,10 +35,11 @@ storage = firebase.storage()
 
 class VideoStream:
     """Camera object that controls video streaming from the Picamera"""
-    def __init__(self,resolution=(640,360),framerate=30):
+    def __init__(self,resolution=(640,480),framerate=30):
         # self.stream = cv2.VideoCapture("rtsp://camuser1:caiustpuser1@192.168.254.115:554/cam/realmonitor?channel=1&subtype=0")
         #self.stream = cv2.VideoCapture("rtsp://thesis:thesisisit@10.0.254.12/stream2")
         self.stream = cv2.VideoCapture(0)
+        
         ret = self.stream.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
         ret = self.stream.set(3,resolution[0])
         ret = self.stream.set(4,resolution[1])
@@ -75,7 +76,7 @@ parser.add_argument('--labels', help='Name of the labelmap file, if different th
 parser.add_argument('--threshold', help='Minimum confidence threshold for displaying detected objects',
                     default=0.5)
 parser.add_argument('--resolution', help='Desired webcam resolution in WxH. If the webcam does not support the resolution entered, errors may occur.',
-                    default='640x360')
+                    default='640x480')
 parser.add_argument('--edgetpu', help='Use Coral Edge TPU Accelerator to speed up detection',
                     action='store_true')
 
@@ -150,7 +151,6 @@ freq = cv2.getTickFrequency()
 videostream = VideoStream(resolution=(imW,imH),framerate=30).start()
 count = 0
 exit = 0
-detected = False
 
 directory = r'iMAGE.jpg'
 copyPath = "check_copy.jpg"
@@ -158,7 +158,6 @@ prevImgFname = []
 
 def detection():
     global frame_rate_calc
-    global detected
     global exit
     while True:
         t1 = cv2.getTickCount()
@@ -181,7 +180,7 @@ def detection():
 
         #area = [(2,219),(636,219),(637,475),(2,475)] #sa laptop cam
         #area = [(x1,y1),(x2,y1)],(x2,y2),(x1,y2)]
-        area = [(2,243),(1200,243),(1200,800),(2,800)] #sa CCTV
+        area = [(100,500),(1600,500),(1600,1080),(100,1080)] #sa CCTV
 
         for i in range(len(scores)):
             if ((scores[i] > min_conf_threshold) and (scores[i] <= 1.0)):
@@ -195,7 +194,6 @@ def detection():
                 cy = int((ymin + ymax)/2)
                 result = cv2.pointPolygonTest(np.array(area, np.int32), (int(cx), int(cy)), False)
                 if  result >= 0:
-                    detected = True
                     cv2.rectangle(frame, (xmin,ymin), (xmax,ymax), (10, 255, 0), 2)
 
                     object_name = labels[int(classes[i])] 
@@ -208,16 +206,14 @@ def detection():
                     imgRoi = frame[ymin:ymax, xmin:xmax]
                     cv2.imwrite("iMAGE.jpg", imgRoi)
                     cv2.imwrite("check_copy.jpg", imgRoi)
-             
-                else:
-                    detected = False
+
                     
 
         for i in area:
             cv2.polylines(frame,[np.array(area, np.int32)], True, (15,220,10),6)
 
         cv2.putText(frame,'FPS: {0:.2f}'.format(frame_rate_calc),(30,50),cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,0),2,cv2.LINE_AA)
-        frame2 = imutils.resize(frame, width=900)
+        frame2 = imutils.resize(frame, width=950)
         cv2.imshow('Object detector', frame2)
 
         
@@ -235,7 +231,6 @@ def detection():
 def ocr():
     global saveImageDelay
     global directory
-    global detected
     global exit
     global prev_txt
     global prevImgFname
@@ -250,9 +245,12 @@ def ocr():
                 try:
                     img = cv2.imread(directory)
                     img_resized = cv2.resize(img,None, fx=0.5 , fy =0.5)
+
                     start_time = time.time()
+                    
                     result = inferencer(img_resized, print_result=True)
                     text = result['predictions'][0]['text']
+
                     end_time = time.time()
                     elapsed_time = end_time - start_time
 
@@ -265,11 +263,11 @@ def ocr():
                             file.write(plateNum+ "\n")
                             # Close the file
                             file.close()
-                        #print('checkdatabase')
                         prevPN = text
-                        # data = {"PlateNumber":text}
-                        # db.child("ScannedQuery").set(data)
                     print('Prediction: '+text+' TimeElapse: '+str(elapsed_time))
+                    
+                    os.remove(directory)
+                    
                     if text not in prevImgFname:
                                     
                         new_original_filename = f"scanned_platenumbers\{text}.jpg"
@@ -347,14 +345,59 @@ def checkExist():
                     closest_matches = []
                     # min_distance = float('inf')
                     for num in plate_nums:
-                        distance = Levenshtein.distance(plateNum, num)
-                        confidence = round((1 - (distance / len(plateNum))) * 100, 2)
-                        if confidence >= 60:
+                        # distance = Levenshtein.distance(plateNum, num)
+                        # confidence = round((1 - (distance / len(plateNum))) * 100, 2)
+                        # if confidence >= 60:
+                        #     num_value = db.child("Vehicle_with_criminal_offense").child(num).child('criminalOffense').get().val()
+                        #     closest_matches.append((num, num_value, confidence))
+                        # Calculate Levenshtein distance between ground truth and OCR output
+
+                        # using dynamic programming
+                        dp = [[0] * (len(num) + 1) for _ in range(len(plateNum) + 1)]
+                        for i in range(len(plateNum) + 1):
+                            for j in range(len(num) + 1):
+                                if i == 0:
+                                    dp[i][j] = j
+                                elif j == 0:
+                                    dp[i][j] = i
+                                elif plateNum[i - 1] == num[j - 1]:
+                                    dp[i][j] = dp[i - 1][j - 1]
+                                else:
+                                    dp[i][j] = 1 + min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
+                            
+                        # Calculate number of transforms required
+                        T = dp[len(plateNum)][len(num)]
+                                
+                        # Calculate number of correct characters
+                        C = len(num) - T
+                                
+                        print()
+                        # Calculate CER
+                        CER = T / (T + C) * 100
+                        confidence = 100 - CER 
+                        if confidence >= 60 and confidence <=75:
                             num_value = db.child("Vehicle_with_criminal_offense").child(num).child('criminalOffense').get().val()
                             closest_matches.append((num, num_value, confidence))
+                        elif confidence > 75 and confidence <= 100:
+                            num_value = db.child("Vehicle_with_criminal_offense").child(num).child('criminalOffense').get().val()
+                            closest_matches.append((num, num_value, confidence))
+                        print(num)
+                        print("CER: {:.2f}%".format(CER))
+                        # Sort matches by descending confidence
+                        closest_matches = sorted(closest_matches, key=lambda x: x[2], reverse=True)
+                        print(plateNum)
+                        print(str(closest_matches))
+                    # closest_matches = []
+                    # # min_distance = float('inf')
+                    # for num in plate_nums:
+                    #     distance = Levenshtein.distance(plateNum, num)
+                    #     confidence = round((1 - (distance / len(plateNum))) * 100, 2)
+                    #     if confidence >= 60:
+                    #         num_value = db.child("Vehicle_with_criminal_offense").child(num).child('criminalOffense').get().val()
+                    #         closest_matches.append((num, num_value, confidence))
 
-                    # Sort matches by descending confidence
-                    closest_matches = sorted(closest_matches, key=lambda x: x[2], reverse=True)
+                    # # Sort matches by descending confidence
+                    # closest_matches = sorted(closest_matches, key=lambda x: x[2], reverse=True)
                     if closest_matches[0][0] not in prev_txt:
                         exist = db.child("Vehicle_with_criminal_offense").child(closest_matches[0][0]).child("plateNumber").get()
                         #print(exist.val())
@@ -445,20 +488,23 @@ def clear_list():
 
 
 def first_clear_list():
-    folder_path = 'scanned_platenumbers'  # Replace with the path to your folder
-     # Loop through all the files in the folder and remove them
-    for filename in os.listdir(folder_path):
-        file_path = os.path.join(folder_path, filename)
-        try:
-            if os.path.isfile(file_path) or os.path.islink(file_path):
-                os.unlink(file_path)
-        except Exception as e:
-            print(f'Error deleting {file_path}: {e}')
-    prev_txt.clear()
-    prevImgFname.clear()
-    print()
-    print("-----------First Clear List------------")
-    print()
+    try:
+        folder_path = 'scanned_platenumbers'  # Replace with the path to your folder
+        # Loop through all the files in the folder and remove them
+        for filename in os.listdir(folder_path):
+            file_path = os.path.join(folder_path, filename)
+            try:
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)
+            except Exception as e:
+                print(f'Error deleting {file_path}: {e}')
+        prev_txt.clear()
+        prevImgFname.clear()
+        print()
+        print("-----------First Clear List------------")
+        print()
+    except Exception as e:
+                    print('error '+str(e))
 
 
 first_clear_list()
@@ -469,6 +515,7 @@ task1 = Thread(target=detection)
 task2 = Thread(target=ocr)
 task3 = Thread(target=checkExist)
 task4 = Thread(target=clear_list)
+
 #task3 = Thread(target=saveForQuery)
 #task4 = Thread(target=checkExist)
 #task5 = Thread(target=clear_list)
