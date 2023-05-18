@@ -42,7 +42,7 @@ parser.add_argument('--labels', help='Name of the labelmap file, if different th
 parser.add_argument('--threshold', help='Minimum confidence threshold for displaying detected objects',
                     default=0.5)
 parser.add_argument('--video', help='Name of the video file',
-                    default='newCamVid1.mp4')
+                    default='UserTestingVidFinal.mp4')
 parser.add_argument('--edgetpu', help='Use Coral Edge TPU Accelerator to speed up detection',
                     action='store_true')
 
@@ -125,6 +125,7 @@ detected = False
 exit = 0
 image_output = "iMAGE.jpg"
 directory = image_output
+setCopyPath = False
 copyPath = "check_copy.jpg"
 prevImgFname = []
 
@@ -136,6 +137,7 @@ def detection():
     global detected
     global exit
     global video
+    global setCopyPath
     while True:
         t1 = cv2.getTickCount()
         ret, frame = video.read()
@@ -188,7 +190,10 @@ def detection():
                     #cv2.circle(frame,(cx,cy),5,(10, 255, 0),-1)
                     imgRoi = frame[ymin:ymax, xmin:xmax]
                     cv2.imwrite("iMAGE.jpg", imgRoi)
-                    cv2.imwrite("check_copy.jpg", imgRoi)
+
+                    if setCopyPath == False:
+                        cv2.imwrite("check_copy.jpg", imgRoi)
+                        setCopyPath = True
                 else:
                     detected = False
         for i in area:
@@ -203,8 +208,9 @@ def detection():
         time1 = (t2-t1)/freq
         frame_rate_calc= 1/time1
 
-        key = cv2.waitKey(1)
-        if key == ord('q'):
+        cv2.waitKey(2)
+
+        if cv2.waitKey(1) == ord('q'):
             exit =1
             break
 
@@ -218,6 +224,7 @@ def ocr():
     global exit
     global prev_txt
     global prevImgFname
+    global setCopyPath
     filename = "scanned_platenumbers.txt"
     prevPN = ''
     # Create the file if it doesn't exist
@@ -255,7 +262,9 @@ def ocr():
 
                         # Rename the original image with the new filename
                         os.rename(copyPath, new_original_filename)
+                        setCopyPath = False
                         prevImgFname.append(text)
+                        
                     # Print OCR results
                     
                     
@@ -425,6 +434,8 @@ def clear_list():
 
 
 def first_clear_list():
+    global directory
+    global copyPath
     folder_path = 'scanned_platenumbers'  # Replace with the path to your folder
      # Loop through all the files in the folder and remove them
     for filename in os.listdir(folder_path):
@@ -436,6 +447,11 @@ def first_clear_list():
             print(f'Error deleting {file_path}: {e}')
     prev_txt.clear()
     prevImgFname.clear()
+    try:
+        os.remove(directory)
+        os.remove(copyPath)
+    except:
+        print()
     print()
     print("-----------First Clear List------------")
     print()
