@@ -13,6 +13,7 @@ from datetime import datetime
 import imutils
 import Levenshtein
 
+
 from mmocr.apis import TextRecInferencer
 inferencer = TextRecInferencer(model='SATRN', weights=r'D:\testCudaPytorch2\best_IC15_recog_word_acc_epoch_77.pth')
 
